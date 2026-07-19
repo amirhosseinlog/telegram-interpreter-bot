@@ -105,7 +105,29 @@ def home():
 
 @app.route('/health')
 def health():
-    return jsonify({'status': 'ok', 'version': '1.0.0', 'platform': 'railway'})
+    from interpreter_handler import InterpreterHandler
+    h = InterpreterHandler()
+    return jsonify({
+        'status': 'ok',
+        'version': '1.0.0',
+        'platform': 'railway',
+        'model': h.llm_model,
+        'base_url': h.llm_base_url,
+        'has_key': bool(h.llm_api_key)
+    })
+
+@app.route('/debug')
+def debug():
+    from interpreter_handler import InterpreterHandler
+    h = InterpreterHandler()
+    return jsonify({
+        'model': h.llm_model,
+        'base_url': h.llm_base_url,
+        'has_key': bool(h.llm_api_key),
+        'key_prefix': h.llm_api_key[:10] + '...' if h.llm_api_key else 'NONE',
+        'env_model': os.getenv('LLM_MODEL', 'NOT SET'),
+        'env_base_url': os.getenv('LLM_BASE_URL', 'NOT SET')
+    })
 
 
 async def handle_update(update):
