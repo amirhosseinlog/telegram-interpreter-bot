@@ -4,6 +4,7 @@ import logging
 import requests
 import re
 import threading
+from datetime import datetime
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -28,24 +29,26 @@ class InterpreterHandler:
             return "[ERROR] " + str(e)[:200]
 
     def _web_search(self, query):
-        """Web search via DuckDuckGo HTML scraping - no API key needed"""
+        """Web search via DuckDuckGo HTML scraping"""
         result = []
 
         def _do_search():
             try:
+                # Add current year to force fresh results
+                today = datetime.now()
+                search_query = f"{query} {today.year}"
+
                 r = requests.get(
                     "https://html.duckduckgo.com/html/",
-                    params={"q": query},
+                    params={"q": search_query},
                     headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; rv:120.0) Gecko/20100101 Firefox/120.0"},
                     timeout=8
                 )
                 if r.status_code != 200:
-                    result.append("Search failed: HTTP " + str(r.status_code))
+                    result.append("Search failed")
                     return
 
-                # Extract results with regex
                 html = r.text
-                # Find all result blocks
                 blocks = re.findall(r'<a rel="nofollow" class="result__a" href="(.*?)">(.*?)</a>', html, re.DOTALL)
                 snippets = re.findall(r'<a class="result__snippet"[^>]*>(.*?)</a>', html, re.DOTALL)
 
@@ -60,7 +63,7 @@ class InterpreterHandler:
                     result.append(f"   {url}")
 
                 if not result:
-                    result.append("No results found")
+                    result.append("No results")
 
             except Exception as e:
                 result.append("Search error: " + str(e))
@@ -75,9 +78,14 @@ class InterpreterHandler:
 
     def _call_llm(self, chat_id, message):
         if not self.llm_api_key:
-            return "[OFFLINE] No API key"
+            return "[OFFLINE]"
 
         history = self._load_history(chat_id)
+
+        # Current date for context
+        now = datetime.now()
+        today_str = now.strftime("%Y-%m-%d (%A)")
+        today_persian = f"{now.year}/{now.month:02d}/{now.day:02d}"
 
         # Web search triggers
         search_kw = [
@@ -94,13 +102,18 @@ class InterpreterHandler:
 
         if search_text and "No results" not in search_text and "Search error" not in search_text:
             system_prompt = (
-                "You are a helpful AI assistant. Always respond in Persian (Farsi). "
-                "You have LIVE web search results below. Use them to answer precisely. Cite sources.\n\n"
+                f"You are a helpful AI assistant. TODAY'S DATE IS {today_str}. "
+                f"The current year is {now.year}. "
+                "Always respond in Persian (Farsi). "
+                "You have LIVE web search results below. Use them to answer precisely. "
+                "ALWAYS include the date/source of each piece of news. "
+                "If results seem old, say so clearly.\n\n"
                 "WEB SEARCH RESULTS:\n" + search_text
             )
         else:
             system_prompt = (
-                "You are a helpful AI assistant. "
+                f"You are a helpful AI assistant. TODAY'S DATE IS {today_str}. "
+                f"The current year is {now.year}. "
                 "Always respond in Persian (Farsi). "
                 "Be concise and direct. Keep responses short."
             )
@@ -134,10 +147,10 @@ class InterpreterHandler:
                 self._save_history(chat_id, messages[1:] + [{"role": "assistant", "content": reply}])
                 return reply
 
-            return "[ERROR] Unexpected response"
+            return "[ERROR] Unexpected"
 
         except requests.Timeout:
-            return "[TIMEOUT] Try again"
+            return "[TIMEOUT]"
         except Exception as e:
             return "[ERROR] " + str(e)[:100]
 
