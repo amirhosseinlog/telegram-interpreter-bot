@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.env
+.venv/
+*.egg-info/
+.git/
+.gitignore
+sessions/
+workspace/
+user_files/
+README.md
