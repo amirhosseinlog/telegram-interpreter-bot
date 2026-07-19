@@ -56,6 +56,7 @@ class InterpreterHandler:
     async def _call_llm(self, chat_id: int, message: str) -> str:
         """تماس با OpenAI-compatible API"""
         import aiohttp
+from duckduckgo_search import DDGS
 
         api_key = self.llm_api_key
         if not api_key:
@@ -70,7 +71,18 @@ class InterpreterHandler:
             'Respond in Persian (Farsi) unless the user writes in another language. '
             'Be concise, friendly, and helpful. '
             'You can: answer questions, explain concepts, write code, analyze data. '
-            'Keep responses reasonably short for a chat environment.'
+                    # Check if user needs web search
+        needs_search = any(kw in message.lower() for kw in ["خبر", "news", "اخبار", "آخرین", "latest", "جستجو", "search", "this week","today","امروز","now","الان","current","newest"])
+        search_context = ""
+        if needs_search:
+            search_context = await self._web_search(message)
+        
+        system_prompt = (
+            "You are a helpful AI assistant running on a Telegram bot. "
+            "Respond in Persian (Farsi) unless the user writes in another language. "
+            "Be concise, friendly, and helpful. "
+            "You can: answer questions, explain concepts, write code, analyze data. "
+            "Keep responses reasonably short for a chat environment."
         )
 
         url = f'{self.llm_base_url.rstrip("/")}/chat/completions'
@@ -80,7 +92,15 @@ class InterpreterHandler:
         }
         payload = {
             'model': self.llm_model,
-            'messages': [{'role': 'system', 'content': system_prompt}] + messages,
+                    if search_context:
+            search_msg = {"role": "system", "content": f"Web search results for user query:\n\n{search_context}\n\nUse these results to answer the user if relevant."}
+            api_messages = [{"role": "system", "content": system_prompt}, search_msg] + messages
+        else:
+            api_messages = [{"role": "system", "content": system_prompt}] + messages
+        
+        payload = {
+            "model": self.llm_model,
+            "messages": api_messages,
             'max_tokens': 2048,
             'temperature': 0.7
         }
