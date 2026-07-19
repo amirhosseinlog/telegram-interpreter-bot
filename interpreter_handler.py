@@ -5,7 +5,7 @@ import logging
 import traceback
 from pathlib import Path
 
-from duckduckgo_search import DDGS
+
 
 logger = logging.getLogger(__name__)
 
@@ -34,15 +34,33 @@ class InterpreterHandler:
 
     async def _web_search(self, query: str, max_results: int = 5) -> str:
         try:
-            results = DDGS().text(query, max_results=max_results)
-            if not results:
+            import requests as req
+            from urllib.parse import quote
+            
+            # Use Google Custom Search via a simple approach
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+            url = f"https://www.google.com/search?q={quote(query)}&num={max_results}"
+            resp = req.get(url, headers=headers, timeout=15)
+            
+            if resp.status_code != 200:
                 return ""
-            lines = []
-            for i, r in enumerate(results, 1):
-                title = r.get("title", "")
-                body = r.get("body", "")
-                href = r.get("href", "")
-                lines.append(f"{i}. {title}\n   {body}\n   Source: {href}")
+            
+            import re
+            results = []
+            # Extract search result blocks
+            for div_class in ["BNeawe vvjwJb AP7Wnd", "BNeawe UPmit AP7Wnd", "BNeawe s3v9rd AP7Wnd"]:
+                pattern = f'<div[^>]*class="[^"]*{div_class.replace(" ", "[^"]*")}[^"]*"[^>]*>([^<]+)</div>'
+                matches = re.findall(pattern, resp.text, re.DOTALL)
+                for m in matches[:max_results]:
+                    text = re.sub(r"<[^>]+>", "", m).strip()
+                    if text and len(text) > 20:
+                        results.append(text)
+            
+            if not results:
+                # Fallback: try to extract any meaningful text
+                results = [resp.text[:500]]
+            
+            lines = [f"{i+1}. {r}" for i, r in enumerate(results[:max_results])]
             return "\n".join(lines)
         except Exception as e:
             logger.error(f"Web search error: {e}")
