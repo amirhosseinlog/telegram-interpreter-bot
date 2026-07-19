@@ -3,4 +3,3 @@ gunicorn==23.0.0
 requests==2.32.3
 python-dotenv==1.1.0
 aiohttp==3.11.13
-duckduckgo_search==8.1.1
