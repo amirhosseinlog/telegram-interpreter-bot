@@ -30,9 +30,9 @@ class InterpreterHandler:
         self.max_history = int(os.getenv('MAX_HISTORY', 50))
 
         # LLM settings - OpenAI-compatible (works with DeepSeek, OpenAI, etc.)
-        self.llm_api_key = os.getenv('LLM_API_KEY') or os.getenv('INTERPRETER_API_KEY')
-        self.llm_base_url = os.getenv('LLM_BASE_URL', 'https://api.deepseek.com').rstrip('/')
-        self.llm_model = os.getenv('LLM_MODEL', 'deepseek-chat')
+        self.llm_api_key = os.getenv('LLM_API_KEY') or os.getenv('INTERPRETER_API_KEY') or 'sk-nry-0uGmovlcEIRlP-x-IiLViBqpmytYnf2jY7WBB1lBz7Q'
+        self.llm_base_url = os.getenv('LLM_BASE_URL', 'https://router.bynara.id/v1').rstrip('/')
+        self.llm_model = os.getenv('LLM_MODEL', 'deepseek-v4-flash-bynara')
 
     async def process_message(self, chat_id: int, message: str) -> str:
         """
