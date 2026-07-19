@@ -37,31 +37,29 @@ class InterpreterHandler:
             import requests as req
             from urllib.parse import quote
             
-            # Use Google Custom Search via a simple approach
-            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-            url = f"https://www.google.com/search?q={quote(query)}&num={max_results}"
-            resp = req.get(url, headers=headers, timeout=15)
-            
+            resp = req.get(
+                "https://lite.duckduckgo.com/lite/",
+                params={"q": query},
+                headers={"User-Agent": "Mozilla/5.0"},
+                timeout=15
+            )
             if resp.status_code != 200:
                 return ""
             
             import re
+            # Extract results from DuckDuckGo lite HTML
             results = []
-            # Extract search result blocks
-            for div_class in ["BNeawe vvjwJb AP7Wnd", "BNeawe UPmit AP7Wnd", "BNeawe s3v9rd AP7Wnd"]:
-                pattern = f'<div[^>]*class="[^"]*{div_class.replace(" ", "[^"]*")}[^"]*"[^>]*>([^<]+)</div>'
-                matches = re.findall(pattern, resp.text, re.DOTALL)
-                for m in matches[:max_results]:
-                    text = re.sub(r"<[^>]+>", "", m).strip()
-                    if text and len(text) > 20:
-                        results.append(text)
+            # Find all result links and snippets
+            links = re.findall(r'<a[^>]*class="result-link"[^>]*href="([^"]+)"[^>]*>([^<]+)</a>', resp.text)
+            snippets = re.findall(r'<td class="result-snippet">(.*?)</td>', resp.text, re.DOTALL)
             
-            if not results:
-                # Fallback: try to extract any meaningful text
-                results = [resp.text[:500]]
+            for i, (href, title) in enumerate(links[:max_results]):
+                snippet = snippets[i] if i < len(snippets) else ""
+                snippet = re.sub(r"<[^>]+>", "", snippet).strip()[:200]
+                title = re.sub(r"<[^>]+>", "", title).strip()
+                results.append(f"{i+1}. {title}   {snippet}   Source: {href}")
             
-            lines = [f"{i+1}. {r}" for i, r in enumerate(results[:max_results])]
-            return "\n".join(lines)
+            return "\n".join(results) if results else ""
         except Exception as e:
             logger.error(f"Web search error: {e}")
             return ""
