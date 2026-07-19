@@ -19,4 +19,4 @@ RUN mkdir -p /app/sessions /app/workspace /app/user_files
 
 EXPOSE ${PORT}
 
-CMD gunicorn --bind 0.0.0.0:${PORT:-8080} --workers 2 --timeout 120 --worker-class sync app:app
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "--timeout", "120", "--worker-class", "sync", "app:app"]
