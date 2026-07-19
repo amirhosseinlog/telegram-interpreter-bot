@@ -1,6 +1,7 @@
 ﻿import os
 import json
 import logging
+import requests
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -11,12 +12,12 @@ class InterpreterHandler:
         self.sessions_dir = Path(os.getenv('SESSIONS_DIR', '/app/sessions'))
         self.workspace_base.mkdir(parents=True, exist_ok=True)
         self.sessions_dir.mkdir(parents=True, exist_ok=True)
-        self.max_history = 10  # only 10, not 50
+        self.max_history = 10
 
-        # Hardcoded defaults - env vars can override but default is DeepSeek via Bynara
+        # Hardcoded - always DeepSeek via Bynara
         self.llm_api_key = os.getenv('LLM_API_KEY') or os.getenv('INTERPRETER_API_KEY') or '[REDACTED]'
-        self.llm_base_url = (os.getenv('LLM_BASE_URL') or 'https://router.bynara.id/v1').rstrip('/')
-        self.llm_model = 'deepseek-v4-pro-bynara'  # ALWAYS DeepSeek, ignore env
+        self.llm_base_url = 'https://router.bynara.id/v1'
+        self.llm_model = 'deepseek-v4-pro-bynara'
 
     def process_message(self, chat_id, message):
         try:
@@ -25,25 +26,90 @@ class InterpreterHandler:
             logger.error(f'LLM error: {e}', exc_info=True)
             return '\u26a0\ufe0f \u062e\u0637\u0627: ' + str(e)[:200]
 
-    def _call_llm(self, chat_id, message):
-        import requests
+    def _web_search(self, query):
+        """Fast web search via DuckDuckGo Instant Answer API - no dependencies needed"""
+        try:
+            r = requests.get(
+                'https://api.duckduckgo.com/',
+                params={'q': query, 'format': 'json', 'no_html': '1', 'skip_disambig': '1'},
+                timeout=5
+            )
+            if r.status_code != 200:
+                return ''
+            data = r.json()
+            parts = []
 
+            # Abstract
+            if data.get('AbstractText'):
+                parts.append(data['AbstractText'])
+                if data.get('AbstractURL'):
+                    parts.append('Source: ' + data['AbstractURL'])
+
+            # Answer
+            if data.get('Answer'):
+                parts.append('Answer: ' + data['Answer'])
+
+            # Definition
+            if data.get('Definition'):
+                parts.append('Definition: ' + data['Definition'])
+
+            # Related topics (top 5)
+            for topic in data.get('RelatedTopics', [])[:5]:
+                if isinstance(topic, dict) and topic.get('Text'):
+                    parts.append('- ' + topic['Text'])
+
+            # Results (top 3)
+            for item in data.get('Results', [])[:3]:
+                if isinstance(item, dict):
+                    parts.append(item.get('Text', '') + ' - ' + item.get('FirstURL', ''))
+
+            return '\\n'.join(parts) if parts else ''
+
+        except Exception as e:
+            logger.error(f'Web search error: {e}')
+            return ''
+
+    def _call_llm(self, chat_id, message):
         if not self.llm_api_key:
-            return self._offline_message()
+            return '\u26a0\ufe0f \u062d\u0627\u0644\u062a \u0622\u0641\u0644\u0627\u06cc\u0646. LLM_API_KEY \u062a\u0646\u0638\u06cc\u0645 \u0646\u0634\u062f\u0647.'
 
         history = self._load_history(chat_id)
 
-        # Simple system prompt - no web search complexity
-        system_prompt = (
-            "You are a helpful AI assistant. "
-            "Respond in Persian (Farsi) unless the user writes in another language. "
-            "Be concise, direct, and helpful. "
-            "Keep responses short for Telegram chat."
-        )
+        # Check if web search needed
+        search_kw = [
+            '\u0627\u062e\u0628\u0627\u0631', 'news', '\u062e\u0628\u0631', '\u0622\u062e\u0631\u06cc\u0646', 'latest',
+            '\u0627\u0645\u0631\u0648\u0632', 'today', '\u0627\u0644\u0627\u0646', 'now', 'current',
+            '\u0642\u06cc\u0645\u062a', 'price', '\u0646\u0631\u062e', 'rate', '\u062f\u0644\u0627\u0631', 'dollar',
+            '\u06cc\u0648\u0631\u0648', 'euro', '\u0628\u06cc\u062a\u06a9\u0648\u06cc\u0646', 'bitcoin',
+            '\u0633\u0647\u0627\u0645', 'stock', '\u0628\u0648\u0631\u0633', 'market',
+            '\u0647\u0648\u0627', 'weather', '\u0622\u0628\u0648\u0647\u0648\u0627',
+            '\u062c\u0633\u062a\u062c\u0648', 'search', '\u0633\u0631\u0686', 'google',
+        ]
+        msg_lower = message.lower()
+        needs_search = any(kw in msg_lower for kw in search_kw)
 
-        messages = [{"role": "system", "content": system_prompt}]
-        messages.extend(history[-8:])  # only last 8 messages
-        messages.append({"role": "user", "content": message})
+        search_text = ''
+        if needs_search:
+            search_text = self._web_search(message)
+
+        # Build system prompt
+        if search_text:
+            system_prompt = (
+                'You are a helpful AI assistant. Respond in Persian (Farsi) unless the user writes in another language. '
+                'Be concise and direct. Use the web search results below to answer the user. '
+                'Always cite the source URL when using search results.\\n\\n'
+                'WEB SEARCH RESULTS:\\n' + search_text
+            )
+        else:
+            system_prompt = (
+                'You are a helpful AI assistant. '
+                'Respond in Persian (Farsi) unless the user writes in another language. '
+                'Be concise and direct. Keep responses short for Telegram chat.'
+            )
+
+        messages = [{'role': 'system', 'content': system_prompt}]
+        messages.extend(history[-8:])
+        messages.append({'role': 'user', 'content': message})
 
         url = f'{self.llm_base_url}/chat/completions'
         headers = {
@@ -68,7 +134,7 @@ class InterpreterHandler:
 
             if 'choices' in data and len(data['choices']) > 0:
                 reply = data['choices'][0]['message']['content']
-                self._save_history(chat_id, messages[1:] + [{"role": "assistant", "content": reply}])
+                self._save_history(chat_id, messages[1:] + [{'role': 'assistant', 'content': reply}])
                 return reply
 
             return '\u26a0\ufe0f \u067e\u0627\u0633\u062e \u063a\u06cc\u0631\u0645\u0646\u062a\u0638\u0631\u0647'
