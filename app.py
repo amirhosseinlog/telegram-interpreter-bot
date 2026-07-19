@@ -1,9 +1,9 @@
-﻿
-import os
+﻿import os
 import sys
 import json
 import logging
 import requests
+import threading
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 
@@ -36,6 +36,28 @@ def send_typing(chat_id):
         pass
 
 
+def process_in_background(chat_id, text):
+    """Process message in background thread - webhook returns immediately"""
+    try:
+        send_typing(chat_id)
+        from interpreter_handler import InterpreterHandler
+        handler = InterpreterHandler()
+        response = handler.process_message(chat_id, text)
+
+        if response:
+            if len(response) > 4000:
+                for i in range(0, len(response), 4000):
+                    send_message(chat_id, response[i:i+4000])
+            else:
+                send_message(chat_id, response)
+    except Exception as e:
+        logger.error(f"Background error: {e}")
+        try:
+            send_message(chat_id, "[ERROR] " + str(e)[:200])
+        except:
+            pass
+
+
 @app.route("/webhook", methods=["POST"])
 def webhook():
     update = request.get_json()
@@ -50,18 +72,10 @@ def webhook():
         return jsonify({"ok": True})
 
     logger.info(f"[{chat_id}] {text[:60]}")
-    send_typing(chat_id)
 
-    from interpreter_handler import InterpreterHandler
-    handler = InterpreterHandler()
-    response = handler.process_message(chat_id, text)
-
-    if response:
-        if len(response) > 4000:
-            for i in range(0, len(response), 4000):
-                send_message(chat_id, response[i:i+4000])
-        else:
-            send_message(chat_id, response)
+    # Fire and forget - return immediately, process in background
+    t = threading.Thread(target=process_in_background, args=(chat_id, text), daemon=True)
+    t.start()
 
     return jsonify({"ok": True})
 
@@ -125,4 +139,3 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     logger.info(f"Starting on port {port}")
     app.run(host="0.0.0.0", port=port, debug=False)
-
