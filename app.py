@@ -1,4 +1,5 @@
-﻿import os
+﻿
+import os
 import sys
 import json
 import logging
@@ -8,47 +9,47 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TOKEN:
-    logger.error('TELEGRAM_BOT_TOKEN not set!')
+    logger.error("TELEGRAM_BOT_TOKEN not set!")
     sys.exit(1)
 
-API = f'https://api.telegram.org/bot{TOKEN}'
+API = f"https://api.telegram.org/bot{TOKEN}"
 
 
 def send_message(chat_id, text):
     try:
-        requests.post(f'{API}/sendMessage', json={'chat_id': chat_id, 'text': text}, timeout=10)
+        requests.post(f"{API}/sendMessage", json={"chat_id": chat_id, "text": text}, timeout=10)
     except Exception as e:
-        logger.error(f'Send error: {e}')
+        logger.error(f"Send error: {e}")
 
 
 def send_typing(chat_id):
     try:
-        requests.post(f'{API}/sendChatAction', json={'chat_id': chat_id, 'action': 'typing'}, timeout=3)
+        requests.post(f"{API}/sendChatAction", json={"chat_id": chat_id, "action": "typing"}, timeout=3)
     except:
         pass
 
 
-@app.route('/webhook', methods=['POST'])
+@app.route("/webhook", methods=["POST"])
 def webhook():
     update = request.get_json()
     if not update:
-        return jsonify({'ok': False}), 400
+        return jsonify({"ok": False}), 400
 
-    msg = update.get('message', {})
-    chat_id = msg.get('chat', {}).get('id')
-    text = msg.get('text', '')
+    msg = update.get("message", {})
+    chat_id = msg.get("chat", {}).get("id")
+    text = msg.get("text", "")
 
     if not chat_id or not text:
-        return jsonify({'ok': True})
+        return jsonify({"ok": True})
 
-    logger.info(f'[{chat_id}] {text[:60]}')
+    logger.info(f"[{chat_id}] {text[:60]}")
     send_typing(chat_id)
 
     from interpreter_handler import InterpreterHandler
@@ -62,40 +63,66 @@ def webhook():
         else:
             send_message(chat_id, response)
 
-    return jsonify({'ok': True})
+    return jsonify({"ok": True})
 
 
-@app.route('/webhook/' + TOKEN, methods=['POST'])
+@app.route("/webhook/" + TOKEN, methods=["POST"])
 def webhook_token():
     return webhook()
 
 
-@app.route('/')
+@app.route("/")
 def home():
-    return '<h1>Bot Running</h1>'
+    return "<h1>Bot Running</h1>"
 
 
-@app.route('/health')
+@app.route("/health")
 def health():
     from interpreter_handler import InterpreterHandler
     h = InterpreterHandler()
-    return jsonify({'status': 'ok', 'model': h.llm_model, 'base_url': h.llm_base_url, 'has_key': bool(h.llm_api_key)})
+    return jsonify({"status": "ok", "model": h.llm_model, "base_url": h.llm_base_url, "has_key": bool(h.llm_api_key)})
 
 
-@app.route('/debug')
+@app.route("/debug")
 def debug():
     from interpreter_handler import InterpreterHandler
     h = InterpreterHandler()
     return jsonify({
-        'model': h.llm_model,
-        'base_url': h.llm_base_url,
-        'has_key': bool(h.llm_api_key),
-        'env_model': os.getenv('LLM_MODEL', 'NOT SET'),
-        'env_url': os.getenv('LLM_BASE_URL', 'NOT SET')
+        "model": h.llm_model,
+        "base_url": h.llm_base_url,
+        "has_key": bool(h.llm_api_key),
+        "env_model": os.getenv("LLM_MODEL", "NOT SET"),
+        "env_url": os.getenv("LLM_BASE_URL", "NOT SET")
     })
 
 
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 8080))
-    logger.info(f'Starting on port {port}')
-    app.run(host='0.0.0.0', port=port, debug=False)
+@app.route("/testsearch")
+def testsearch():
+    import importlib, threading
+    result = {"duckduckgo_installed": False, "search_result": ""}
+    try:
+        spec = importlib.util.find_spec("duckduckgo_search")
+        result["duckduckgo_installed"] = spec is not None
+    except:
+        pass
+    if result["duckduckgo_installed"]:
+        def do_search():
+            try:
+                from duckduckgo_search import DDGS
+                results = list(DDGS().text("iran news", max_results=3))
+                result["search_result"] = [{"title": r["title"], "body": r["body"][:100], "href": r["href"]} for r in results]
+            except Exception as e:
+                result["search_error"] = str(e)
+        t = threading.Thread(target=do_search, daemon=True)
+        t.start()
+        t.join(timeout=8)
+        if t.is_alive():
+            result["search_result"] = "TIMEOUT"
+    return jsonify(result)
+
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8080))
+    logger.info(f"Starting on port {port}")
+    app.run(host="0.0.0.0", port=port, debug=False)
+
