@@ -73,7 +73,7 @@ class InterpreterHandler:
             'Keep responses reasonably short for a chat environment.'
         )
 
-        url = f'{self.llm_base_url}/v1/chat/completions'
+        url = f'{self.llm_base_url.rstrip("/")}/chat/completions'
         headers = {
             'Authorization': f'Bearer {api_key}',
             'Content-Type': 'application/json'
